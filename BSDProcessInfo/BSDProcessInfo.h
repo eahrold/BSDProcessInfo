@@ -60,6 +60,11 @@
 @property (nonatomic, readonly) NSDate *startDate;
 
 /**
+ *  Localized string representation of the start date.
+ */
+@property (nonatomic, readonly) NSDate *startDateString;
+
+/**
  *  Hours the process has been running
  */
 @property (nonatomic, readonly) NSString *cpuTime;
@@ -88,6 +93,16 @@
  *  Effective User ID
  */
 @property (nonatomic, readonly) uid_t effectiveUserID;
+
+/**
+ *  Real User Name
+ */
+@property (copy, nonatomic, readonly) NSString *realUser;
+
+/**
+ *  Real User ID
+ */
+@property (nonatomic, readonly) uid_t realUserID;
 
 /**
  *  Whether the process is running

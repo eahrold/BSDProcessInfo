@@ -58,9 +58,9 @@ typedef struct kinfo_proc kinfo_proc;
 - (NSString *)description {
     NSMutableString *string = [[NSMutableString alloc] init];
     [string appendFormat:@"PID: %d Name %@ User:%@\n",
-                         self.pid,
-                         self.name,
-                         self.effectiveUser];
+            self.pid,
+            self.name,
+            self.effectiveUser];
 
     [string appendString:@"Command: "];
     if (self.launchPath) {
@@ -79,18 +79,19 @@ typedef struct kinfo_proc kinfo_proc;
         self->_pid = proc->kp_proc.p_pid;
         self->_parentPid = proc->kp_eproc.e_ppid;
 
-        // Name //
+        // Name
         // Find the executable path...
         char executablePath[PROC_PIDPATHINFO_MAXSIZE];
         bzero(executablePath, PROC_PIDPATHINFO_MAXSIZE);
         proc_pidpath(_pid, executablePath, sizeof(executablePath));
-        if (executablePath != NULL) {
+
+        if (sizeof(executablePath) > 0) {
             self->_executablePath =
                 [NSString stringWithUTF8String:executablePath];
         }
 
-        // p_comm maxes out at 16 characters, so if it's there, it's most
-        // likely too big long to be correct, so use the executable path.
+        /* p_comm maxes out at 16 characters, so if it's there, it's most
+         * likely too long to be correct, so use the executable path. */
         if (strlen(proc->kp_proc.p_comm) >= 16 && _executablePath.length) {
             self->_name = _executablePath.lastPathComponent;
         } else {
@@ -102,15 +103,24 @@ typedef struct kinfo_proc kinfo_proc;
             dateWithTimeIntervalSince1970:(proc->kp_proc.p_starttime.tv_sec)];
 
         // User
-        struct passwd *user = getpwuid(proc->kp_eproc.e_ucred.cr_uid);
+        int eUid = proc->kp_eproc.e_ucred.cr_uid;
+        struct passwd *user = getpwuid(eUid);
         if (user) {
-            self->_effectiveUserID = proc->kp_eproc.e_ucred.cr_uid;
+            self->_effectiveUserID = eUid;
             self->_effectiveUser =
                 [NSString stringWithFormat:@"%s", user->pw_name];
         }
 
+        int rUid = proc->kp_eproc.e_pcred.p_ruid;
+        struct passwd *realUser = getpwuid(rUid);
+        if (realUser) {
+            self->_realUserID = rUid;
+            self->_realUser =
+                [NSString stringWithFormat:@"%s", realUser->pw_name];
+        }
+
         // Private
-        _envReadPermission = (getuid() == 0) || (proc->kp_eproc.e_pcred.p_ruid == getuid());
+        _envReadPermission = (getuid() == 0) || (rUid == getuid());
     }
 
     return self;
@@ -135,11 +145,19 @@ typedef struct kinfo_proc kinfo_proc;
 
 #pragma mark - Accessors
 
+- (NSString *)startDateString {
+    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+    [dateFormatter setDateStyle:NSDateFormatterMediumStyle];
+    [dateFormatter setTimeStyle:NSDateFormatterLongStyle];
+    [dateFormatter setLocale:[NSLocale currentLocale]];
+    return [dateFormatter stringFromDate:_startDate];
+}
+
 - (NSString *)launchPath {
     if (!_launchPath) {
         if (![self arguments]) {
-            // _invokedExecutable is set during `-arguments`
-            // so if that returned NIL, then set it to the executablePath
+            /* _invokedExecutable is set during `-arguments`
+             * so if that returned NIL, then set it to the executablePath */
             _launchPath = _executablePath;
         }
     }
@@ -147,8 +165,8 @@ typedef struct kinfo_proc kinfo_proc;
 };
 
 - (NSArray *)arguments {
-    // Adapted from ps source code.
-    // http://www.opensource.apple.com/source/adv_cmds/adv_cmds-158/ps/ps.c
+    /* Adapted from ps source code.
+     * http://www.opensource.apple.com/source/adv_cmds/adv_cmds-158/ps/ps.c */
 
     if (self.pid && !_arguments && !_argsTried) {
         _argsTried = YES;
@@ -203,9 +221,9 @@ typedef struct kinfo_proc kinfo_proc;
                 if (np != NULL) {
                     *np = ' ';
 
-                    // The path used to invoke the command could be different
-                    // then the executable path, such as
-                    // when shebang.
+                    /* The path used to invoke the command could be
+                     * different then the executable path, such as
+                     * with shebang. */
                     _launchPath = [[NSString stringWithUTF8String:np]
                         stringByTrimmingCharactersInSet:
                             [NSCharacterSet whitespaceCharacterSet]];
@@ -289,10 +307,9 @@ typedef struct kinfo_proc kinfo_proc;
                             [environment
                                 addObject:
                                     @{
-                                           [a[0] stringByTrimmingCharactersInSet
-                                            : cs] : [a[1]
-                                               stringByTrimmingCharactersInSet:
-                                                   cs]
+                                       [a[0] stringByTrimmingCharactersInSet:cs] : [a[1]
+                                           stringByTrimmingCharactersInSet:
+                                               cs]
                                     }];
                         }
                     }
@@ -320,15 +337,15 @@ ERROR_A:
 }
 
 - (NSString *)argumentString {
-    if (!_arguments) {
-        _argumentString = [self.arguments componentsJoinedByString:@" "] ?: @"";
+    if (!_argumentString && self.arguments) {
+        _argumentString = [_arguments componentsJoinedByString:@" "] ?: @"";
     }
     return _argumentString;
 }
 
 - (NSArray *)environment {
     if (!_environment) {
-        // The environment is constructed during the `-arguments` method.
+        /* The environment is constructed during the `-arguments` method. */
         [self arguments];
     }
     return _environment;
@@ -349,9 +366,9 @@ ERROR_A:
     }
 
     [cpuTime appendFormat:@"%ld:%ld:%ld",
-                          (long)[components hour],
-                          (long)[components minute],
-                          (long)[components second]];
+             (long)[components hour],
+             (long)[components minute],
+             (long)[components second]];
 
     return cpuTime;
 }
@@ -375,8 +392,8 @@ ERROR_A:
 + (NSArray *)allProcessesWithName:(NSString *)name {
     NSPredicate *predicate =
         [NSPredicate predicateWithFormat:@"%K == %@",
-                                         NSStringFromSelector(@selector(name)),
-                                         name];
+                     NSStringFromSelector(@selector(name)),
+                     name];
 
     return [[self __allProcesses] filteredArrayUsingPredicate:predicate];
 }
@@ -388,8 +405,8 @@ ERROR_A:
 + (NSArray *)allUserProcessesWithName:(NSString *)name {
     NSPredicate *predicate = [NSPredicate
         predicateWithFormat:@"%K == %@",
-                            NSStringFromSelector(@selector(effectiveUser)),
-                            NSUserName()];
+        NSStringFromSelector(@selector(effectiveUser)),
+        NSUserName()];
 
     return [[self __userProcesses] filteredArrayUsingPredicate:predicate];
 }
@@ -436,8 +453,8 @@ ERROR_A:
 + (NSArray *)allProcessesWithExecutablePath:(NSString *)executablePath {
     NSPredicate *predicate = [NSPredicate
         predicateWithFormat:@"%K == %@",
-                            NSStringFromSelector(@selector(executablePath)),
-                            executablePath];
+        NSStringFromSelector(@selector(executablePath)),
+        executablePath];
 
     return [[self __allProcesses] filteredArrayUsingPredicate:predicate];
 }
@@ -462,8 +479,8 @@ ERROR_A:
 + (NSMutableArray *)__userProcesses {
     NSPredicate *predicate = [NSPredicate
         predicateWithFormat:@"%K == %@",
-                            NSStringFromSelector(@selector(effectiveUser)),
-                            NSUserName()];
+        NSStringFromSelector(@selector(effectiveUser)),
+        NSUserName()];
 
     NSMutableArray *array = [self __allProcesses];
     [array filterUsingPredicate:predicate];
@@ -471,12 +488,18 @@ ERROR_A:
 }
 
 + (NSMutableArray *)__allProcesses {
-    // Returns a list of all BSD processes on the system.  This routine
-    // allocates the list and puts it in *procList and a count of the
-    // number of entries in *procCount.  You are responsible for freeing
-    // this list (use "free" from System framework).
-    // On success, the function returns 0.
-    // On error, the function returns a BSD errno value.
+    // This is simply an Objective-c wrapper for this...
+    // http://psutil.googlecode.com/svn/trunk/psutil/arch/bsd/process_info.c
+    // Copyright (c) 2009, Jay Loden, Giampaolo Rodola'. All rights reserved.
+    // Use of this source code is governed by a BSD-style license that can be
+    // found in the LICENSE file.
+
+    /* Returns a list of all BSD processes on the system.  This routine
+     * allocates the list and puts it in *procList and a count of the
+     * number of entries in *procCount.  You are responsible for freeing
+     * this list (use "free" from System framework).
+     * On success, the function returns 0.
+     * On error, the function returns a BSD errno value. */
 
     NSMutableArray *processes = nil;
 
@@ -485,19 +508,19 @@ ERROR_A:
     bool done;
     const int name[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
 
-    // Declaring name as const requires us to cast it when passing it to
-    // sysctl because the prototype doesn't include the const modifier.
+    /* Declaring name as const requires us to cast it when passing it to
+     * sysctl because the prototype doesn't include the const modifier. */
     size_t length;
 
-    // We start by calling sysctl with result == NULL and length == 0.
-    // That will succeed, and set length to the appropriate length.
-    // We then allocate a buffer of that size and call sysctl again
-    // with that buffer.  If that succeeds, we're done.  If that fails
-    // with ENOMEM, we have to throw away our buffer and loop.  Note
-    // that the loop causes use to call sysctl with NULL again; this
-    // is necessary because the ENOMEM failure case sets length to
-    // the amount of data returned, not the amount of data that
-    // could have been returned.
+    /* We start by calling sysctl with result == NULL and length == 0.
+     * That will succeed, and set length to the appropriate length.
+     * We then allocate a buffer of that size and call sysctl again
+     * with that buffer.  If that succeeds, we're done.  If that fails
+     * with ENOMEM, we have to throw away our buffer and loop.  Note
+     * that the loop causes use to call sysctl with NULL again; this
+     * is necessary because the ENOMEM failure case sets length to
+     * the amount of data returned, not the amount of data that
+     * could have been returned. */
 
     result = NULL;
     done = false;
@@ -505,20 +528,19 @@ ERROR_A:
         assert(result == NULL);
 
         // Call sysctl with a NULL buffer.
-
         length = 0;
         err = sysctl((int *)name,
-                     (sizeof(name) / sizeof(*name)) - 1,
-                     NULL,
-                     &length,
-                     NULL,
-                     0);
+            (sizeof(name) / sizeof(*name)) - 1,
+            NULL,
+            &length,
+            NULL,
+            0);
         if (err == -1) {
             err = errno;
         }
 
-        // Allocate an appropriately sized buffer based on the results
-        // from the previous call.
+        /* Allocate an appropriately sized buffer based
+         * on the results from the previous call. */
 
         if (err == 0) {
             result = malloc(length);
@@ -527,16 +549,16 @@ ERROR_A:
             }
         }
 
-        // Call sysctl again with the new buffer.  If we get an ENOMEM
-        // error, toss away our buffer and start again.
+        /* Call sysctl again with the new buffer.  If we get an ENOMEM
+         * error, toss away our buffer and start again. */
 
         if (err == 0) {
             err = sysctl((int *)name,
-                         (sizeof(name) / sizeof(*name)) - 1,
-                         result,
-                         &length,
-                         NULL,
-                         0);
+                (sizeof(name) / sizeof(*name)) - 1,
+                result,
+                &length,
+                NULL,
+                0);
 
             if (err == -1) {
                 err = errno;
@@ -552,7 +574,7 @@ ERROR_A:
         }
     } while (err == 0 && !done);
 
-    // Check the result and built the NSArray
+    /* Check the result and built the NSArray */
     if (result != NULL) {
         if (err == 0) {
             size_t rlenght = (length / sizeof(kinfo_proc));
@@ -623,6 +645,13 @@ ERROR_A:
 
         self->_effectiveUserID = [decoder
             decodeInt32ForKey:NSStringFromSelector(@selector(effectiveUserID))];
+        // User
+        self->_realUser = [decoder
+            decodeObjectOfClass:[NSString class]
+                         forKey:NSStringFromSelector(@selector(realUser))];
+
+        self->_realUserID = [decoder
+            decodeInt32ForKey:NSStringFromSelector(@selector(realUserID))];
     }
     return self;
 }
@@ -655,6 +684,11 @@ ERROR_A:
                  forKey:NSStringFromSelector(@selector(effectiveUser))];
     [coder encodeInt32:self.effectiveUserID
                 forKey:NSStringFromSelector(@selector(effectiveUserID))];
+
+    [coder encodeObject:self.realUser
+                 forKey:NSStringFromSelector(@selector(realUser))];
+    [coder encodeInt32:self.realUserID
+                forKey:NSStringFromSelector(@selector(realUserID))];
 }
 
 @end
